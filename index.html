@@ -512,6 +512,7 @@ const SERVICE_CONTACTS0 = [
 ];
 
 const TAGS0 = [
+  { id: "T0", nama: "Retention", color: "#8C1E7F", system: true, label: "Retention" },
   { id: "T1", nama: "Gangguan", color: "#e5484d" },
   { id: "T2", nama: "Tagihan", color: "#d98a1f" },
   { id: "T3", nama: "Sales", color: "#3b6fe6" },
@@ -878,29 +879,29 @@ function DetailHeader({ onBack, title, subtitle, statusBadge, rightAction }) {
 
 function MainMenu({ active, onChange, activeAccount, onLogoutClick, theme, onThemeToggle, isOpen = true }) {
   const [openSubmenu, setOpenSubmenu] = useState(null); // "service", etc.
-  const menuGroups = [
-    {
-      category: "Umum",
-      items: [
-        { key: "chat", label: "Chats", icon: "fa-regular fa-comment-dots", reactIcon: MessageCircle },
-        { key: "template", label: "Template Chat", icon: "fa-solid fa-envelope-open-text", reactIcon: MessageCircle },
-      ]
-    },
-    {
-      category: "Operasional",
-      items: [
-        {
-          key: "workorder", label: "Work Order", icon: "fa-solid fa-clipboard-list", reactIcon: null,
-          submenuKey: "workorder",
-          submenuItems: [
-            { key: "wo-backlog", label: "Backlog", icon: "fa-solid fa-inbox" },
-            { key: "wo-executed", label: "Executed", icon: "fa-solid fa-check-circle" },
-          ]
-        },
-        { key: "history", label: "History", icon: "fa-solid fa-clock-rotate-left", reactIcon: null },
-      ]
-    },
-  ];
+    const menuGroups = [
+      {
+        category: "Umum",
+        items: [
+          { key: "chat", label: "Chats", icon: "fa-regular fa-comment-dots", reactIcon: MessageCircle },
+          { key: "template", label: "Template Chat", icon: "fa-solid fa-envelope-open-text", reactIcon: MessageCircle },
+        ]
+      },
+      {
+        category: "Operasional",
+        items: [
+          {
+            key: "workorder", label: "Work Order", icon: "fa-solid fa-clipboard-list", reactIcon: null,
+            submenuKey: "workorder",
+            submenuItems: [
+              { key: "wo-backlog", label: "New", icon: "fa-solid fa-inbox" },
+              { key: "wo-executed", label: "Follow Up", icon: "fa-solid fa-check-circle" },
+            ]
+          },
+          { key: "history", label: "History", icon: "fa-solid fa-clock-rotate-left", reactIcon: null },
+        ]
+      },
+    ];
 
   return (
     <aside
@@ -1068,7 +1069,7 @@ function MainMenu({ active, onChange, activeAccount, onLogoutClick, theme, onThe
    CHAT MODULE
    ============================================================ */
 function ChatModule({ state, actions }) {
-  const { chats, contacts, users, services, serviceContacts, tags, templates, selectedChatId, filter, labelFilter, profileOpen, selectionMode, selectedChatIds } = state;
+  const { chats, contacts, users, services, serviceContacts, tags, templates, selectedChatId, filter, labelFilter, profileOpen, selectionMode, selectedChatIds, woExecuted } = state;
 
   const getContact = (id) => contacts.find((c) => c.contactId === id);
   const getUser = (id) => users.find((u) => u.userId === id);
@@ -1110,6 +1111,19 @@ function ChatModule({ state, actions }) {
   const [branchFilter, setBranchFilter] = useState("");
   const activeFilters = Array.isArray(filter) ? filter : [filter || "semua"];
 
+  const followUpNumbers = useMemo(() => {
+    const nums = new Set();
+    (woExecuted || []).forEach(wo => {
+      const sc = serviceContacts.find(s => s.pppoe === wo.pppoe && s.primary);
+      if (sc) {
+        const contact = contacts.find(c => c.contactId === sc.contactId);
+        if (contact?.nomorHp) nums.add(contact.nomorHp);
+        else if (wo.nomorPrimary) nums.add(wo.nomorPrimary);
+      } else if (wo.nomorPrimary) nums.add(wo.nomorPrimary);
+    });
+    return nums;
+  }, [woExecuted, serviceContacts, contacts]);
+
   // Compute per-chat metadata needed for matching
   const getChatMeta = (c) => {
     const contact = c.contactId ? getContact(c.contactId) : null;
@@ -1117,7 +1131,9 @@ function ChatModule({ state, actions }) {
     const pppoeList = c.contactId
       ? chatServiceLinks.map(sc => sc.pppoe)
       : (c.candidatePppoe ? [c.candidatePppoe] : []);
-    return { contact, pppoeList };
+    const nomor = c.nomorHp || chatServiceLinks[0]?.contactId || (contact?.nomorHp);
+    const isFollowUp = followUpNumbers.has(c.nomorHp) || (contact?.nomorHp && followUpNumbers.has(contact.nomorHp));
+    return { contact, pppoeList, isFollowUp };
   };
 
   const passesBaseFilters = (c) => {
@@ -1129,6 +1145,9 @@ function ChatModule({ state, actions }) {
       const branches = getChatBranches(c);
       if (!branches.has(branchFilter)) return false;
     }
+    // Hanya tampilkan chat untuk nomor primary yang ada di Follow Up
+    const { isFollowUp } = getChatMeta(c);
+    if (!isFollowUp) return false;
     return true;
   };
 
@@ -1224,14 +1243,14 @@ function ChatModule({ state, actions }) {
     <div className="flex flex-1 min-w-0 h-full overflow-hidden" style={{ background: C.bgApp }}>
       {/* KOLOM: CHAT LIST */}
       <div style={{ width: 420, background: C.bgPanel, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0, height: "100%" }}>
-        {/* Search Bar + New Chat Button */}
-        <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+        {/* Search Bar — New Chat button removed */}
+        <div className="px-3 pt-3 pb-2">
           <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl flex-1" style={{ background: C.bgPanelAlt, border: `1px solid ${C.border}` }}>
             <Search size={15} color={C.textFaint} />
             <input
               value={chatSearch}
               onChange={e=>setChatSearch(e.target.value)}
-              placeholder="Cari PPoE, Nomor HP, Nama..."
+              placeholder="Cari PPPoE, Nomor HP, Nama..."
               className="border-none outline-none bg-transparent text-sm w-full"
               style={{ color: C.text }}
             />
@@ -1241,23 +1260,16 @@ function ChatModule({ state, actions }) {
               </button>
             )}
           </div>
-          <button onClick={()=>setNewChatOpen(true)} title="Mulai Chat Baru" style={{width:36,height:36,border:`1px solid ${C.border}`,borderRadius:10,background:C.bgPanel,color:C.accent,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Plus size={18} color={C.accent}/>
-          </button>
         </div>
 
-        {/* WhatsApp-Style Filter Pills */}
+        {/* WhatsApp-Style Filter Pills — kiosnet/griyanet/label removed; unread retained */}
         <div className="cc-chat-filters flex items-center gap-1.5 px-3 pb-2 overflow-x-auto no-scrollbar">
           <Pill active={activeFilters.includes("semua")} onClick={() => actions.setFilter("semua")}>Semua</Pill>
           <Pill active={activeFilters.includes("unread")} onClick={() => actions.setFilter("unread")}>Belum Dibaca</Pill>
-          <Pill active={activeFilters.includes("kiosnet")} onClick={() => actions.setFilter("kiosnet")}>KiosNet</Pill>
-          <Pill active={activeFilters.includes("griyanet")} onClick={() => actions.setFilter("griyanet")}>GriyaNet</Pill>
         </div>
 
-        <div className="px-3 pb-2 flex gap-2">
-          <div style={{flex:1}}>
-            <LabelFilterSelect tags={tags} value={labelFilter} onChange={actions.setLabelFilter} />
-          </div>
+        {/* Branch filter retained */}
+        <div className="px-3 pb-2">
           <div style={{flex:1}}>
             <BranchFilterSelect branches={allBranches} value={branchFilter} onChange={setBranchFilter} />
           </div>
@@ -1825,10 +1837,6 @@ function ConversationView({ chat, displayName, contactPhone, isKnown, tags, temp
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onUnread} title="Tandai Unread" className="px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer border transition-colors"
-            style={{ borderColor: chat.unread ? "#ea580c" : C.border, background: chat.unread ? "#fff7ed" : C.bgPanel, color: chat.unread ? "#ea580c" : C.textSoft }}>
-            Tandai Unread
-          </button>
           <button onClick={onToggleProfile} title="Info Kontak" className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 border-0 bg-transparent cursor-pointer">
             <i className="fa-solid fa-circle-info text-gray-500"></i>
           </button>
@@ -3098,8 +3106,10 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
   const [search, setSearch] = useState("");
   const [hariFilter, setHariFilter] = useState("");
   const [intervensiFilter, setIntervensiFilter] = useState("");
-  const [actionConfirm, setActionConfirm] = useState(null);
+  const [branchFilter, setBranchFilter] = useState("");
   const tab = activeTab || "backlog";
+
+  const allBranches = [...new Set([...(woBacklog || []), ...(woExecuted || [])].map(w => w.branch).filter(Boolean))].sort();
 
   const allServices = [...(services || []), ...(servicesFasum || [])];
   const getService = (pppoe) => allServices.find(s => s.pppoe === pppoe);
@@ -3123,20 +3133,28 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
     return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: bg, color: fg }}>Hari {hari}</span>;
   };
 
+  const formatSubDuration = (r) => {
+    const svc = getService(r.pppoe);
+    if (!svc?.subStart || !svc?.subExpired) return "-";
+    const start = new Date(svc.subStart);
+    const end = new Date(svc.subExpired);
+    const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    return `${Math.max(0, months)} bulan`;
+  };
+
   const commonColumns = [
-    { key: "woId", label: "WO ID" },
     { key: "pppoe", label: "PPoE Secret" },
     { key: "namaKontak", label: "Nama Kontak", render: (r) => {
       const pc = getPrimaryContact(r.pppoe);
       return <span style={{ fontSize: 12, color: C.text }}>{pc?.nama || r.namaPrimary || "-"}</span>;
     }},
-    { key: "paket", label: "Paket" },
-    { key: "harga", label: "Harga", render: (r) => <span style={{ fontSize: 12, color: C.textFaint }}>{r.harga ? formatRupiah(r.harga) : "-"}</span> },
-    { key: "branch", label: "Branch" },
     { key: "primary", label: "Nomor Primary", render: (r) => {
       const pc = getPrimaryContact(r.pppoe);
       return <span style={{ fontSize: 12, fontFamily: "monospace", color: C.text }}>{pc?.nomorHp || r.nomorPrimary}</span>;
     }},
+    { key: "paket", label: "Paket" },
+    { key: "harga", label: "Harga", render: (r) => <span style={{ fontSize: 12, color: C.textFaint }}>{r.harga ? formatRupiah(r.harga) : "-"}</span> },
+    { key: "lamaBerlangganan", label: "Lama Berlangganan", render: (r) => <span style={{ fontSize: 12, color: C.text }}>{formatSubDuration(r)}</span> },
     { key: "hariIsolir", label: "Hari Isolir", render: (r) => renderBadgeHari(r.hariIsolir) },
   ];
 
@@ -3180,7 +3198,6 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
     const pc = getPrimaryContact(w.pppoe);
     const namaKontak = (pc?.nama || w.namaPrimary || "").toLowerCase();
     return (
-      (w.woId || "").toLowerCase().includes(searchLower) ||
       (w.pppoe || "").toLowerCase().includes(searchLower) ||
       namaKontak.includes(searchLower) ||
       (w.branch || "").toLowerCase().includes(searchLower)
@@ -3188,6 +3205,7 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
   }).filter(w => {
     const h = parseInt(hariFilter);
     if (!isNaN(h) && w.hariIsolir < h) return false;
+    if (branchFilter && w.branch !== branchFilter) return false;
     if (tab === "executed") {
       const i = parseInt(intervensiFilter);
       if (!isNaN(i) && w.interventionCount !== i) return false;
@@ -3217,7 +3235,7 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Cari WO ID, PPPoE, Nama Kontak, Branch..."
+             placeholder="Cari PPPoE, Nama Kontak, Branch..."
             style={{border:"none",outline:"none",background:"transparent",color:C.text,width:"100%",fontSize:12.5}}
           />
         </div>
@@ -3231,17 +3249,26 @@ function WorkOrderModule({ woBacklog, woExecuted, woHistory, services, servicesF
             min="0"
           />
         </div>
-        {tab === "executed" && <div style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 10px",background:C.bgPanel, width: 120}}>
-          <input
-            value={intervensiFilter}
-            onChange={e => setIntervensiFilter(e.target.value.replace(/\D/g, ""))}
-            placeholder="Intervensi"
-            style={{border:"none",outline:"none",background:"transparent",color:C.text,width:"100%",fontSize:12.5}}
-            type="number"
-            min="0"
+         {tab === "executed" && <div style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 10px",background:C.bgPanel, width: 120}}>
+            <input
+              value={intervensiFilter}
+              onChange={e => setIntervensiFilter(e.target.value.replace(/\D/g, ""))}
+              placeholder="Intervensi"
+              style={{border:"none",outline:"none",background:"transparent",color:C.text,width:"100%",fontSize:12.5}}
+              type="number"
+              min="0"
+/>
+          </div>}
+          <FilterSelect
+            label="Branch"
+            value={branchFilter}
+            onChange={setBranchFilter}
+            options={[
+              { value: "", label: "Semua Branch" },
+              ...allBranches.map(b => ({ value: b, label: b }))
+            ]}
           />
-        </div>}
-      </div>
+        </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
@@ -3320,16 +3347,19 @@ function HistoryModule({ woHistory, services, servicesFasum, contacts, serviceCo
   const [filter, setFilter] = useState("semua");
   const [search, setSearch] = useState("");
   const [intervensiFilter, setIntervensiFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
+
+  const allBranches = [...new Set((woHistory || []).map(w => w.branch).filter(Boolean))].sort();
 
   const searchLower = search.toLowerCase().trim();
   const filtered = woHistory.filter(w => {
     if (filter !== "semua" && w.hasilAkhir !== filter) return false;
     if (intervensiFilter && w.interventionCount !== parseInt(intervensiFilter)) return false;
+    if (branchFilter && w.branch !== branchFilter) return false;
     if (!searchLower) return true;
     const pc = getPrimaryContact(w.pppoe);
     const namaKontak = (pc?.nama || w.namaPrimary || "").toLowerCase();
     return (
-      (w.woId || "").toLowerCase().includes(searchLower) ||
       (w.pppoe || "").toLowerCase().includes(searchLower) ||
       namaKontak.includes(searchLower)
     );
@@ -3362,7 +3392,7 @@ function HistoryModule({ woHistory, services, servicesFasum, contacts, serviceCo
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Cari WO ID, PPPoE, Nama Kontak..."
+             placeholder="Cari PPPoE, Nama Kontak..."
             style={{ border: "none", outline: "none", background: "transparent", color: C.text, width: "100%", fontSize: 12.5 }}
           />
         </div>
@@ -3376,7 +3406,7 @@ function HistoryModule({ woHistory, services, servicesFasum, contacts, serviceCo
             min="0"
           />
         </div>
-        <FilterSelect
+         <FilterSelect
           label="Hasil"
           value={filter === "semua" ? "" : filter}
           options={[
@@ -3386,20 +3416,39 @@ function HistoryModule({ woHistory, services, servicesFasum, contacts, serviceCo
           ]}
           onChange={(val) => setFilter(val || "semua")}
         />
+        <FilterSelect
+          label="Branch"
+          value={branchFilter}
+          onChange={setBranchFilter}
+          options={[
+            { value: "", label: "Semua Branch" },
+            ...allBranches.map(b => ({ value: b, label: b }))
+          ]}
+        />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+       <div className="flex-1 overflow-y-auto p-6">
         <DataTable
           columns={[
-            { key: "woId", label: "WO ID" },
             { key: "pppoe", label: "PPoE Secret" },
             { key: "namaKontak", label: "Nama Kontak", render: r => {
               const pc = getPrimaryContact(r.pppoe);
               return <span style={{ fontSize: 12, color: C.text }}>{pc?.nama || r.namaPrimary || "-"}</span>;
             }},
+            { key: "primary", label: "Nomor Primary", render: r => {
+              const pc = getPrimaryContact(r.pppoe);
+              return <span style={{ fontSize: 12, fontFamily: "monospace", color: C.text }}>{pc?.nomorHp || r.nomorPrimary}</span>;
+            }},
             { key: "paket", label: "Paket" },
             { key: "harga", label: "Harga", render: r => <span style={{ fontSize: 12, color: C.textFaint }}>{r.harga ? formatRupiah(r.harga) : "-"}</span> },
-            { key: "branch", label: "Branch" },
+            { key: "lamaBerlangganan", label: "Lama Berlangganan", render: r => {
+              const svc = getService(r.pppoe);
+              if (!svc?.subStart || !svc?.subExpired) return "-";
+              const start = new Date(svc.subStart);
+              const end = new Date(svc.subExpired);
+              const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+              return <span style={{ fontSize: 12, color: C.text }}>{`${Math.max(0, months)} bulan`}</span>;
+            }},
             { key: "interventionCount", label: "Intervensi", render: r => <Badge bg="#ede9fe" fg="#6d28d9">{r.interventionCount}x</Badge> },
             { key: "hasilAkhir", label: "Hasil", render: r => hasilBadge(r.hasilAkhir) },
             { key: "resolvedAt", label: "Selesai Pada", render: r => <span style={{ fontSize: 12, color: C.textFaint }}>{r.resolvedAt || "-"}</span> },
@@ -3408,6 +3457,135 @@ function HistoryModule({ woHistory, services, servicesFasum, contacts, serviceCo
           emptyLabel="Belum ada history WO."
         />
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Label Module (CRUD)
+   ============================================================ */
+/* ============================================================
+   Label Module (CRUD)
+   ============================================================ */
+function LabelModule({ labels, actions }) {
+  const [editing, setEditing] = useState(null); // { mode: "create"|"edit"|"delete", id?, nama?, color? }
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#3b6fe6");
+
+  const openCreate = () => { setEditing({ mode: "create" }); setName(""); setColor("#3b6fe6"); };
+  const openEdit = (l) => { if (l.system) return; setEditing({ mode: "edit", id: l.id }); setName(l.nama); setColor(l.color); };
+  const openDelete = (l) => { if (l.system) return; setEditing({ mode: "delete", id: l.id, nama: l.nama }); };
+  const closeModal = () => { setEditing(null); setName(""); setColor("#3b6fe6"); };
+
+  const saveLabel = () => {
+    if (!name.trim()) return;
+    if (editing.mode === "create") actions.createLabel({ nama: name.trim(), color });
+    else actions.updateLabel(editing.id, { nama: name.trim(), color });
+    closeModal();
+  };
+
+  const confirmDelete = () => {
+    actions.deleteLabel(editing.id);
+    closeModal();
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden" style={{ background: C.bgApp }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200" style={{ background: C.bgPanel }}>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#eff6ff", color: "#3b6fe6" }}>
+            <TagIcon size={17} color={C.accent} />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold" style={{ color: C.text }}>Label</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Kelola label untuk percakapan</p>
+          </div>
+        </div>
+        <button onClick={openCreate} style={{ padding: "6px 14px", border: "none", borderRadius: 7, background: C.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          + Buat Label
+        </button>
+      </div>
+
+      {/* Label List — card style */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {labels.length === 0 ? (
+          <div style={{ padding: "28px", textAlign: "center", color: C.textFaint, fontSize: 13 }}>
+            Belum ada label. Klik "Buat Label" untuk membuat label pertama.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5" style={{ maxWidth: 520 }}>
+             {labels.map(l => (
+               <div key={l.id} className="flex items-center justify-between px-3.5 py-2.5 rounded-xl border" style={{ background: C.bgPanel, borderColor: C.border }}>
+                 <div className="flex items-center gap-3">
+                   <span style={{ display: "inline-block", width: 18, height: 18, borderRadius: "50%", background: l.color, border: "1px solid #fff", boxShadow: "0 0 0 1px #e5e7eb", flexShrink: 0 }} />
+                   <span style={{ fontSize: 13.5, fontWeight: 600, color: C.text }}>{l.nama}</span>
+                   {l.system && <span style={{ fontSize: 10, fontWeight: 700, color: C.textFaint, background: C.bgPanelAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: "2px 6px" }}>Sistem</span>}
+                 </div>
+                 <div className="flex gap-2">
+                   <button onClick={() => openEdit(l)} disabled={!!l.system} style={{ padding: "4px 12px", border: `1px solid ${C.border}`, borderRadius: 6, background: l.system ? C.bgPanelAlt : C.bgPanelAlt, color: C.text, fontSize: 12, cursor: l.system ? "not-allowed" : "pointer", opacity: l.system ? 0.5 : 1 }}>Edit</button>
+                   <button onClick={() => openDelete(l)} disabled={!!l.system} style={{ padding: "4px 12px", border: "none", borderRadius: 6, background: l.system ? C.textFaint : C.danger, color: "#fff", fontSize: 12, cursor: l.system ? "not-allowed" : "pointer", opacity: l.system ? 0.5 : 1 }}>Hapus</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create / Edit Modal */}
+      {editing && editing.mode !== "delete" && (
+        <Modal title={editing.mode === "create" ? "Buat Label Baru" : "Edit Label"} onClose={closeModal} width={380}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, fontSize: 12.5, color: C.text }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, display: "block", marginBottom: 6 }}>Nama Label</label>
+              <input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Masukkan nama label..."
+                style={{ width: "100%", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", background: C.bgPanel, color: C.text, fontSize: 12.5 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.textFaint, display: "block", marginBottom: 6 }}>Warna</label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input type="color" value={color} onChange={e => setColor(e.target.value)} style={{ width: 44, height: 36, padding: 2, border: `1px solid ${C.border}`, borderRadius: 7, background: C.bgPanel, cursor: "pointer" }} />
+                <input
+                  value={color}
+                  onChange={e => setColor(e.target.value)}
+                  style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 8px", background: C.bgPanel, color: C.text, fontSize: 12, fontFamily: "monospace" }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {TAG_COLOR_OPTIONS.map(c => (
+                  <button key={c} onClick={() => setColor(c)} style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${color === c ? "#111827" : "transparent"}`, background: c, cursor: "pointer", flexShrink: 0 }} />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2" style={{ marginTop: 22 }}>
+            <button onClick={closeModal} style={{ padding: "7px 16px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bgPanel, color: C.text, cursor: "pointer", fontSize: 12.5 }}>Batal</button>
+            <button
+              disabled={!name.trim() || name.trim().toLowerCase() === "retention"}
+              onClick={saveLabel}
+              style={{ padding: "7px 16px", border: "none", borderRadius: 7, background: (!name.trim() || name.trim().toLowerCase() === "retention") ? C.textFaint : C.accent, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: (!name.trim() || name.trim().toLowerCase() === "retention") ? "not-allowed" : "pointer" }}
+            >Simpan</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {editing && editing.mode === "delete" && (
+        <Modal title="Hapus Label" onClose={closeModal} width={380}>
+          <div style={{ fontSize: 12.5, color: C.textSoft, lineHeight: 1.6, marginBottom: 16 }}>
+            Hapus label <b style={{ color: C.text }}>"{editing.nama}"</b>? Label akan dicabut dari semua percakapan yang menggunakannya.
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={closeModal} style={{ padding: "7px 16px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.bgPanel, color: C.text, cursor: "pointer", fontSize: 12.5 }}>Batal</button>
+            <button onClick={confirmDelete} style={{ padding: "7px 16px", border: "none", borderRadius: 7, background: C.danger, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Hapus</button>
+          </div>
+        </Modal>
+      )}
+
     </div>
   );
 }
@@ -3801,8 +3979,8 @@ function App() {
         {/* Dynamic Content View */}
         <main className="flex-1 min-w-0 h-full flex flex-col overflow-hidden" style={{ background: C.bgApp }}>
           {activeMenu === "chat" && (
-            <ChatModule
-              state={{ chats, contacts, users, services, servicesFasum, serviceContacts, tags, templates, selectedChatId, filter, labelFilter, profileOpen, selectionMode, selectedChatIds, deleteConfirmOpen }}
+             <ChatModule
+              state={{ chats, contacts, users, services, servicesFasum, serviceContacts, tags, templates, selectedChatId, filter, labelFilter, profileOpen, selectionMode, selectedChatIds, deleteConfirmOpen, woExecuted }}
               actions={{
                 ...chatActions,
                 getServices: () => [...services, ...servicesFasum],
@@ -3851,13 +4029,14 @@ function App() {
             <HistoryModule woHistory={woHistory} services={services} servicesFasum={servicesFasum} contacts={contacts} serviceContacts={serviceContacts} />
           )}
 
-          {activeMenu === "user" && (
-            <UserModule
-              users={users} services={services} servicesFasum={servicesFasum} contacts={contacts} serviceContacts={serviceContacts}
-              selectedUserId={selectedUserId} openUserDetail={openUserDetail}
-              back={() => setSelectedUserId(null)} openServiceDetail={openServiceDetail}
-            />
-          )}
+           {activeMenu === "user" && (
+             <UserModule
+               users={users} services={services} servicesFasum={servicesFasum} contacts={contacts} serviceContacts={serviceContacts}
+               selectedUserId={selectedUserId} openUserDetail={openUserDetail}
+               back={() => setSelectedUserId(null)} openServiceDetail={openServiceDetail}
+             />
+            )}
+
 
           {activeMenu === "service-personal" && (
             <ServiceModule
